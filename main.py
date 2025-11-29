@@ -1,7 +1,24 @@
 from vuer import Vuer, VuerSession
 from vuer.schemas import MotionControllers
-import asyncio
+from vuer.schemas import (
+    Text3D,
+    Text,
+    Billboard,
+    DefaultScene,
+    AmbientLight,
+    DirectionalLight,
+    MeshNormalMaterial,
+    Scene, 
+    ImageBackground
+)
+from asyncio import sleep
+
+import imageio as iio
+from tqdm import tqdm
 import os
+from vuer import Vuer, VuerSession
+from vuer.events import ClientEvent
+import cv2
 
 KEY_FILE = os.path.abspath("key.pem")
 CERT_FILE = os.path.abspath("cert.pem")
@@ -16,6 +33,58 @@ app = Vuer(
     key=KEY_FILE,    # SSL 私鑰
     # static_dir=None  # 你要自己提供前端就保持 None
 )
+@app.add_handler("CAMERA_MOVE")
+async def on_camera(event: ClientEvent, sess: VuerSession):
+    assert event == "CAMERA_MOVE", "the event type should be correct"
+    print("camera event", event.etype, event.value)
+
+@app.spawn(start=True)
+async def show_heatmap(sess: VuerSession):
+    cap = cv2.VideoCapture(3)
+    if not cap.isOpened():
+        print("Failed to open camera")
+        return
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            await sleep(0.016)
+            continue
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        # use the upsert(..., to="bgChildren") syntax, so it is in global frame.
+        sess.upsert(
+            ImageBackground(
+                # Can scale the images down.
+                frame[::1, ::1, :],
+                # One of ['b64png', 'png', 'b64jpeg', 'jpeg']
+                # 'b64png' does not work for some reason, but works for the nerf demo.
+                # 'jpeg' encoding is significantly faster than 'png'.
+                format="jpeg",
+                quality=20,
+                key="background",
+                interpolate=True,
+                fixed=True,
+                distanceToCamera=1,
+                # can test with matrix
+                # matrix=[
+                #     1.2418025750411799, 0, 0, 0,
+                #     0, 1.5346539759579207, 0, 0,
+                #     0, 0, 1, 0,
+                #     0, 0, -3, 1,
+                # ],
+                position=[0, 1.5, -3],
+                ### Can also rotate the plane in-place.
+                # rotation=[-0.25, 0, 0],
+            ),
+            # we place this into the background children list, so that it is
+            # not affected by the global rotation
+            to="bgChildren",
+        )
+
+        # 'jpeg' encoding should give you about 30fps with a 16ms wait in-between.
+        # this is mostly limited by the python server side.
+        await sleep(0.016)
 
 @app.add_handler("SESSION_CONNECTED")
 async def connected(event, session):
@@ -29,5 +98,19 @@ async def controller(event, session):
 async def main(session: VuerSession):
     print("🚀 HTTPS vuer 運行（無靜態衝突）")
     session.upsert(MotionControllers(stream=True, key="motion-controller", left=True, right=True))
+    # Upsert elements - creates them if they don't exist
+    # Billboard text that always faces the camera
+    session.set @ DefaultScene(
+        Billboard(
+            Text(
+                "I face the camera!",
+                key="billboard-text",
+                color="orange",
+                fontSize=0.08,
+            ),
+            key="billboard",
+            position=[0.0, 1.0, -1.5],
+        ),
+    )
     while True:
         await asyncio.sleep(0.1)
