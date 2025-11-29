@@ -1,0 +1,11 @@
+[project]
+name = "questcapture"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pyngrok>=7.5.0",
+    "uvicorn[standard]>=0.38.0",
+    "vuer[all]>=0.0.68",
+]
